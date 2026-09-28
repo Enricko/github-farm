@@ -22,8 +22,10 @@ try:
     from selenium.webdriver.common.action_chains import ActionChains
     from selenium.common.exceptions import TimeoutException, NoSuchElementException
     UC_AVAILABLE = True
-except ImportError:
+    UC_ERROR = None
+except Exception as e:
     UC_AVAILABLE = False
+    UC_ERROR = str(e)
 
 
 class UCSignupFlow:

@@ -99,10 +99,10 @@ class Orchestrator:
         # Step 1 & 2: GitHub signup (Prioritize Undetected-ChromeDriver engine)
         use_uc = False
         try:
-            from src.automation.uc_signup import UCSignupFlow, UC_AVAILABLE
+            from src.automation.uc_signup import UCSignupFlow, UC_AVAILABLE, UC_ERROR
             use_uc = UC_AVAILABLE
             if not use_uc:
-                print("  [INFO] undetected-chromedriver not installed (using Patchright). To enable UC: pip install undetected-chromedriver selenium")
+                print(f"  [INFO] UC unavailable ({UC_ERROR}). To fix: pip install setuptools undetected-chromedriver selenium")
         except Exception as e:
             use_uc = False
             print(f"  [INFO] UC import error ({e}), falling back to Patchright...")
