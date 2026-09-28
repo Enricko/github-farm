@@ -82,44 +82,49 @@ class BrowserEngine:
 
         self._pw = await async_playwright().start()
 
+        # Persistent user profile dir so browser has realistic cache/cookies
+        profile_dir = os.path.join(os.getcwd(), "data", "browser_profile")
+        os.makedirs(profile_dir, exist_ok=True)
+
         pw_args = [
             "--no-sandbox",
             "--disable-dev-shm-usage",
             "--disable-blink-features=AutomationControlled",
+            "--no-first-run",
+            "--no-default-browser-check",
         ]
         pw_proxy = None
         if self.proxy:
             pw_proxy = {"server": self.proxy}
 
-        # Auto-detect installed browser: Bundled Patchright -> Chrome -> Edge -> Bundled Chromium
-        self.browser = None
-        channels = [None, "chrome", "msedge"] if use_patchright else ["chrome", "msedge", None]
+        # Auto-detect: Chrome -> Edge -> Bundled Chromium
+        # Using launch_persistent_context + ignore_default_args completely strips navigator.webdriver
+        self.context = None
+        channels = ["chrome", "msedge", None]
         for channel in channels:
             try:
                 launch_opts = {
+                    "user_data_dir": profile_dir,
                     "headless": self.headless,
                     "args": pw_args,
+                    "ignore_default_args": ["--enable-automation"],
                     "proxy": pw_proxy,
+                    "viewport": {"width": 1920, "height": 1080},
+                    "locale": "en-US",
+                    "timezone_id": "America/New_York",
                 }
                 if channel:
                     launch_opts["channel"] = channel
-                self.browser = await self._pw.chromium.launch(**launch_opts)
+                self.context = await self._pw.chromium.launch_persistent_context(**launch_opts)
                 channel_name = channel or ("Patchright Chromium" if use_patchright else "Bundled Chromium")
-                print(f"  [INFO] Launched browser: {channel_name}")
+                print(f"  [INFO] Launched persistent browser: {channel_name} (automation flags stripped)")
                 break
             except Exception:
                 continue
 
-        if not self.browser:
+        if not self.context:
             cmd = "patchright install chromium" if use_patchright else "playwright install chromium"
             raise RuntimeError(f"No browser found! Please run in PowerShell: {cmd}")
-
-        self.context = await self.browser.new_context(
-            locale="en-US",
-            timezone_id="America/New_York",
-            user_agent=self.user_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-            viewport={"width": 1920, "height": 1080},
-        )
 
         try:
             from playwright_stealth import Stealth
@@ -127,10 +132,19 @@ class BrowserEngine:
         except Exception:
             pass
 
-        self.page = await self.context.new_page()
+        if self.context.pages:
+            self.page = self.context.pages[0]
+        else:
+            self.page = await self.context.new_page()
+
         return self.page
 
     async def close(self):
+        try:
+            if self.context:
+                await self.context.close()
+        except Exception:
+            pass
         try:
             if self.browser:
                 await self.browser.close()
