@@ -3,6 +3,7 @@ Orchestrator — Full automated pipeline.
 Combines email generation → GitHub signup → OTP → platform harvest → 9Router inject.
 """
 import asyncio
+import os
 import json
 import random
 import string
@@ -256,7 +257,8 @@ class Orchestrator:
         print(f"{'#'*60}\n")
 
         # Save batch report
-        report_path = f"/root/github-farm/data/batch_{int(time.time())}.json"
+        os.makedirs(self.accounts.data_dir, exist_ok=True)
+        report_path = os.path.join(self.accounts.data_dir, f"batch_{int(time.time())}.json")
         with open(report_path, "w") as f:
             json.dump(self.results, f, indent=2)
         print(f"[REPORT] {report_path}")

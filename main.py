@@ -192,11 +192,15 @@ Examples:
             ))
         else:
             # Batch mode
+            base_user = args.base_user or config.get("generator", {}).get("base_username", "enricko.putra")
+            domain = args.domain or config.get("generator", {}).get("domain", "gmail.com")
+            email_type = args.type or config.get("generator", {}).get("type", "dot")
+
             result = asyncio.run(orch.run_batch(
                 count=args.count,
-                base_email=args.base_user,
-                domain=args.domain,
-                email_type=args.type,
+                base_email=base_user,
+                domain=domain,
+                email_type=email_type,
                 platforms=args.platforms,
                 inject=not args.no_inject,
                 delay_min=args.delay_min,

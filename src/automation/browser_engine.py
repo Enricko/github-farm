@@ -1,5 +1,5 @@
 """
-Browser Engine — Camoufox-based stealth browser automation.
+Browser Engine — Camoufox-based stealth browser automation with Playwright fallback.
 Uses Camoufox (stealth Firefox fork) to bypass DataDome, Cloudflare, and bot detection.
 """
 import asyncio
@@ -8,61 +8,115 @@ import os
 import sys
 from typing import Optional, Dict, Any
 
-sys.path.insert(0, "/root/Boterdrop-Solver")
-
 
 class BrowserEngine:
     def __init__(self, headless: bool = True, proxy: str = None, user_agent: str = None):
         self.headless = headless
         self.proxy = proxy
-        self.user_agent = user_agent  # Ignored — Camoufox handles fingerprinting
+        self.user_agent = user_agent
         self.browser = None
         self.context = None
         self.page = None
         self._camoufox = None
+        self._pw = None
 
     async def launch(self):
-        from camoufox.async_api import AsyncCamoufox
+        # 1. Try Camoufox (Stealth Firefox)
+        try:
+            from camoufox.async_api import AsyncCamoufox
 
-        launch_args = {
-            "headless": self.headless,
-            "exclude_addons": [],  # Keep UBO for ad blocking
-            "args": ["--no-sandbox", "--disable-setuid-sandbox"],
-        }
+            launch_args = {
+                "headless": self.headless,
+            }
 
-        if self.proxy:
-            from urllib.parse import urlparse
-            parsed = urlparse(self.proxy)
-            server = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
-            if parsed.username and parsed.password:
-                launch_args["proxy"] = {
-                    "server": server,
-                    "username": parsed.username,
-                    "password": parsed.password,
-                }
+            # Only add sandbox flags on Linux when running as root
+            if sys.platform != "win32":
+                try:
+                    if os.geteuid() == 0:
+                        launch_args["args"] = ["--no-sandbox", "--disable-setuid-sandbox"]
+                except AttributeError:
+                    pass
+
+            if self.proxy:
+                from urllib.parse import urlparse
+                parsed = urlparse(self.proxy)
+                server = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
+                if parsed.username and parsed.password:
+                    launch_args["proxy"] = {
+                        "server": server,
+                        "username": parsed.username,
+                        "password": parsed.password,
+                    }
+                else:
+                    launch_args["proxy"] = {"server": server}
+
+            self._camoufox = AsyncCamoufox(**launch_args)
+            self.browser = await self._camoufox.start()
+
+            if self.browser.contexts:
+                self.context = self.browser.contexts[0]
             else:
-                launch_args["proxy"] = {"server": server}
+                self.context = await self.browser.new_context()
 
-        self._camoufox = AsyncCamoufox(**launch_args)
-        self.browser = await self._camoufox.start()
+            if self.context.pages:
+                self.page = self.context.pages[0]
+            else:
+                self.page = await self.context.new_page()
 
-        # Get existing context or create new
-        if self.browser.contexts:
-            self.context = self.browser.contexts[0]
-        else:
-            self.context = await self.browser.new_context()
+            return self.page
 
-        if self.context.pages:
-            self.page = self.context.pages[0]
-        else:
-            self.page = await self.context.new_page()
+        except Exception as e:
+            print(f"  [WARN] Camoufox launch failed ({e}). Falling back to Playwright Chromium...")
 
+        # 2. Fallback to Playwright Chromium with stealth
+        from playwright.async_api import async_playwright
+        self._pw = await async_playwright().start()
+
+        pw_args = [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+        ]
+        pw_proxy = None
+        if self.proxy:
+            pw_proxy = {"server": self.proxy}
+
+        self.browser = await self._pw.chromium.launch(
+            headless=self.headless,
+            args=pw_args,
+            proxy=pw_proxy,
+        )
+
+        self.context = await self.browser.new_context(
+            locale="en-US",
+            timezone_id="America/New_York",
+            user_agent=self.user_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            viewport={"width": 1920, "height": 1080},
+        )
+
+        try:
+            from playwright_stealth import Stealth
+            await Stealth().apply_stealth_async(self.context)
+        except Exception:
+            pass
+
+        self.page = await self.context.new_page()
         return self.page
 
     async def close(self):
         try:
             if self.browser:
                 await self.browser.close()
+        except Exception:
+            pass
+        try:
+            if self._camoufox:
+                await self._camoufox.close()
+        except Exception:
+            pass
+        try:
+            if self._pw:
+                await self._pw.stop()
         except Exception:
             pass
 
@@ -95,6 +149,7 @@ class BrowserEngine:
         return None
 
     async def screenshot(self, path: str = None) -> str:
-        path = path or "/tmp/github-farm-debug.png"
+        path = path or os.path.join(os.getcwd(), "data", "debug.png")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         await self.page.screenshot(path=path, full_page=True)
         return path
