@@ -68,8 +68,14 @@ class BrowserEngine:
         except Exception as e:
             print(f"  [WARN] Camoufox launch failed ({e}). Falling back to Playwright Chromium...")
 
-        # 2. Fallback to Playwright with real Chrome / Edge / Chromium + stealth
-        from playwright.async_api import async_playwright
+        # 2. Fallback to Patchright (undetected) or Playwright with real Chrome / Edge / Chromium + stealth
+        try:
+            from patchright.async_api import async_playwright
+            print("  [INFO] Using Patchright (stealth CDP engine)...")
+        except ImportError:
+            from playwright.async_api import async_playwright
+            print("  [INFO] Using standard Playwright...")
+
         self._pw = await async_playwright().start()
 
         pw_args = [
@@ -101,7 +107,7 @@ class BrowserEngine:
 
         if not self.browser:
             raise RuntimeError(
-                "No browser found! Please run: playwright install chromium"
+                "No browser found! Please run: patchright install chromium  (or: playwright install chromium)"
             )
 
         self.context = await self.browser.new_context(
