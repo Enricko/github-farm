@@ -68,7 +68,7 @@ class BrowserEngine:
         except Exception as e:
             print(f"  [WARN] Camoufox launch failed ({e}). Falling back to Playwright Chromium...")
 
-        # 2. Fallback to Playwright Chromium with stealth
+        # 2. Fallback to Playwright with real Chrome / Edge / Chromium + stealth
         from playwright.async_api import async_playwright
         self._pw = await async_playwright().start()
 
@@ -81,11 +81,28 @@ class BrowserEngine:
         if self.proxy:
             pw_proxy = {"server": self.proxy}
 
-        self.browser = await self._pw.chromium.launch(
-            headless=self.headless,
-            args=pw_args,
-            proxy=pw_proxy,
-        )
+        # Auto-detect installed browser: Chrome -> Edge -> Bundled Chromium
+        self.browser = None
+        for channel in ["chrome", "msedge", None]:
+            try:
+                launch_opts = {
+                    "headless": self.headless,
+                    "args": pw_args,
+                    "proxy": pw_proxy,
+                }
+                if channel:
+                    launch_opts["channel"] = channel
+                self.browser = await self._pw.chromium.launch(**launch_opts)
+                channel_name = channel or "bundled chromium"
+                print(f"  [INFO] Launched browser using: {channel_name}")
+                break
+            except Exception:
+                continue
+
+        if not self.browser:
+            raise RuntimeError(
+                "No browser found! Please run: playwright install chromium"
+            )
 
         self.context = await self.browser.new_context(
             locale="en-US",
