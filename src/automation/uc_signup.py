@@ -170,80 +170,138 @@ class UCSignupFlow:
 
         return False
 
+    def add_human_behavior(self):
+        """Add subtle human-like behavior (scroll & mouse move) like bercocok-tanam"""
+        try:
+            self.driver.execute_script(f"window.scrollBy(0, {random.randint(0, 100)});")
+        except Exception:
+            pass
+        self.sleep(0.3, 0.6)
+        try:
+            actions = ActionChains(self.driver)
+            actions.move_by_offset(random.randint(5, 30), random.randint(5, 30)).perform()
+        except Exception:
+            pass
+        self.sleep(0.2, 0.5)
+
     def fill_form(self, email: str, password: str, username: str) -> bool:
         print(f"  [3/6] Navigating to https://github.com/signup...")
         self.driver.get("https://github.com/signup")
-        self.sleep(3, 5)
+        self.sleep(2, 4)
 
         # Wait for form or challenge
         ready = self.wait_for_challenge(max_wait=60)
         if not ready:
-            # Check one more time if email input is present
             try:
                 self.driver.find_element(By.CSS_SELECTOR, "input#email, input[type='email']")
             except NoSuchElementException:
                 return False
 
+        self.add_human_behavior()
+
         # 1. Fill Email
-        print(f"  [4/6] Entering email: {email}")
-        email_elem = WebDriverWait(self.driver, 20).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "input#email, input[type='email']"))
+        print(f"  [4/6] [EMAIL] Waiting for email field...")
+        email_elem = WebDriverWait(self.driver, 30).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "input#email, input[type='email']"))
         )
+        print("  [EMAIL] Field found, typing email...")
         email_elem.click()
-        self.sleep(0.3, 0.6)
-        self.human_type(email_elem, email)
-        self.sleep(1.0, 1.5)
+        self.sleep(0.2, 0.4)
+        for char in email:
+            email_elem.send_keys(char)
+            self.sleep(0.01, 0.03)
+        print(f"  [EMAIL] ✅ Email entered: {email}")
+        self.add_human_behavior()
 
         # 2. Fill Password
-        print(f"  [INFO] Entering password...")
-        pwd_elem = WebDriverWait(self.driver, 15).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "input#password, input[type='password']"))
+        print(f"  [PASSWORD] Waiting for password field...")
+        pwd_elem = WebDriverWait(self.driver, 20).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "input#password, input[type='password']"))
         )
+        print("  [PASSWORD] Field found, typing password...")
         pwd_elem.click()
-        self.sleep(0.3, 0.6)
-        self.human_type(pwd_elem, password)
-        self.sleep(1.0, 1.5)
+        self.sleep(0.2, 0.4)
+        for char in password:
+            pwd_elem.send_keys(char)
+            self.sleep(0.01, 0.03)
+        print("  [PASSWORD] ✅ Password entered")
+        self.add_human_behavior()
 
         # 3. Fill Username
-        print(f"  [INFO] Entering username: {username}")
-        user_elem = WebDriverWait(self.driver, 15).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "input#login, input[name='user[login]']"))
+        print(f"  [USERNAME] Waiting for username field...")
+        user_elem = WebDriverWait(self.driver, 20).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "input#login, input[name='user[login]']"))
         )
+        print("  [USERNAME] Field found, typing username...")
         user_elem.click()
-        self.sleep(0.3, 0.6)
-        self.human_type(user_elem, username)
-        self.sleep(1.0, 1.5)
+        self.sleep(0.2, 0.4)
+        for char in username:
+            user_elem.send_keys(char)
+            self.sleep(0.01, 0.03)
+        print(f"  [USERNAME] ✅ Username entered: {username}")
+        self.add_human_behavior()
 
         # Uncheck marketing checkboxes if present
+        print("  [CHECKBOXES] Checking opt-in checkboxes...")
         for selector in ["input#user_signup\\[copilot_opt_in\\]", "input#user_signup\\[marketing_consent\\]"]:
             try:
                 cb = self.driver.find_element(By.CSS_SELECTOR, selector)
                 if cb.is_selected():
                     cb.click()
                     self.sleep(0.2)
+                    print(f"  [CHECKBOXES] ✅ Unchecked {selector}")
             except Exception:
                 pass
 
-        # Submit form
-        print("  [INFO] Submitting signup form...")
+        self.sleep(1, 2)
+        self.add_human_behavior()
+
+        # Submit form (STRICTLY filter out third-party Google/Apple/OAuth buttons!)
+        print("  [SUBMIT] Looking for Create account submit button...")
         submit_btn = None
         buttons = self.driver.find_elements(By.CSS_SELECTOR, "button[type='submit']")
+        print(f"  [SUBMIT] Found {len(buttons)} candidate buttons")
+
+        # Method 1: Look for button with text "Create account"
         for b in buttons:
-            if "create account" in b.text.lower():
+            btn_text = b.text.strip().lower()
+            if "create account" in btn_text:
                 submit_btn = b
+                print(f"  [SUBMIT] ✅ Found 'Create account' button")
                 break
-        if not submit_btn and buttons:
-            submit_btn = buttons[-1]
+
+        # Method 2: Filter out Google, Apple, and OAuth buttons
+        if not submit_btn:
+            print("  [SUBMIT] Finding primary submit button (excluding Google/Apple)...")
+            for b in reversed(buttons):
+                btn_text = b.text.strip()
+                btn_lower = btn_text.lower()
+                # Skip any third-party auth button!
+                if any(x in btn_lower for x in ["google", "apple", "passkey", "sign in", "log in"]):
+                    continue
+                submit_btn = b
+                print(f"  [SUBMIT] ✅ Using button: '{btn_text}'")
+                break
+
+        # Method 3: Selector fallback
+        if not submit_btn:
+            for sel in ["form#signup-form button[type='submit']", "button.js-octocaptcha-form-submit"]:
+                try:
+                    submit_btn = self.driver.find_element(By.CSS_SELECTOR, sel)
+                    if submit_btn:
+                        break
+                except Exception:
+                    pass
 
         if submit_btn:
             self.driver.execute_script("arguments[0].scrollIntoView(true);", submit_btn)
             self.sleep(0.5)
             submit_btn.click()
-            print("  [OK] Clicked Create account button")
+            print("  [SUBMIT] ✅ Clicked Create account button")
         else:
             raise RuntimeError("Could not find Create account button")
 
-        self.sleep(4, 6)
+        self.sleep(5, 7)
         return True
 
     def enter_otp(self, otp_code: str) -> bool:
