@@ -96,25 +96,72 @@ class Orchestrator:
         print(f"[FARM] Account: {email or 'auto-generate'}")
         print(f"{'='*60}")
 
-        # Step 1: Launch browser
-        print("[1/5] Launching browser...")
-        await self.browser.launch()
-        github = GitHubSignup(self.browser)
+        # Step 1 & 2: GitHub signup (Prioritize Undetected-ChromeDriver engine)
+        use_uc = False
+        try:
+            from src.automation.uc_signup import UCSignupFlow, UC_AVAILABLE
+            use_uc = UC_AVAILABLE
+        except Exception:
+            use_uc = False
 
-        # Step 2: GitHub signup
-        print("[2/5] Signing up on GitHub...")
-        signup_result = await github.signup(
-            email=email,
-            username=username,
-            password=password,
-            otp_callback=self._otp_callback,
-        )
+        github_session = {}
+        if use_uc:
+            print("[1/5] Launching Undetected Chrome engine (anti-DataDome mode)...")
+            uc_flow = UCSignupFlow(
+                headless=self.browser.headless,
+                proxy=self.browser.proxy,
+            )
+            try:
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, uc_flow.launch)
+                await loop.run_in_executor(None, uc_flow.inject_warm_cookies)
+                form_ok = await loop.run_in_executor(None, uc_flow.fill_form, email, password, username)
+                if not form_ok:
+                    signup_result = {"success": False, "error": "Signup challenge timeout or restriction"}
+                else:
+                    print("  [INFO] Waiting for 8-digit OTP from Gmail IMAP...")
+                    otp_code = await self._otp_callback(email)
+                    if not otp_code:
+                        signup_result = {"success": False, "error": "OTP timeout from email"}
+                    else:
+                        otp_ok = await loop.run_in_executor(None, uc_flow.enter_otp, otp_code)
+                        if otp_ok:
+                            cookies_dict = await loop.run_in_executor(None, uc_flow.get_cookies_dict)
+                            github_session = cookies_dict
+                            signup_result = {
+                                "success": True,
+                                "email": email,
+                                "username": username,
+                                "password": password,
+                                "cookies": cookies_dict,
+                            }
+                        else:
+                            signup_result = {"success": False, "error": "Failed entering OTP"}
+            except Exception as e:
+                signup_result = {"success": False, "error": str(e)}
+            finally:
+                await loop.run_in_executor(None, uc_flow.close)
+        else:
+            print("[1/5] Launching browser...")
+            await self.browser.launch()
+            github = GitHubSignup(self.browser)
+
+            print("[2/5] Signing up on GitHub...")
+            signup_result = await github.signup(
+                email=email,
+                username=username,
+                password=password,
+                otp_callback=self._otp_callback,
+            )
 
         if not signup_result.get("success"):
             self.results["accounts_failed"] += 1
             self.accounts.mark_failed(email or "", signup_result.get("error", "signup failed"))
             print(f"  [FAIL] {signup_result.get('error')}")
-            await self.browser.close()
+            try:
+                await self.browser.close()
+            except Exception:
+                pass
             return signup_result
 
         self.results["accounts_created"] += 1
@@ -129,14 +176,18 @@ class Orchestrator:
 
         # Step 3: Extract GitHub session
         print("[3/5] Extracting GitHub session...")
-        github_session = await github.get_cookies()
-        session_token = await github.get_session_token()
-        if session_token:
-            github_session["gh_sess"] = session_token
+        if not github_session:
+            try:
+                cookies = await self.browser.context.cookies()
+                github_session = {c["name"]: c["value"] for c in cookies if "github.com" in c.get("domain", "")}
+            except Exception:
+                pass
         print(f"  [OK] Session cookies: {len(github_session)}")
 
         # Step 4: Harvest platform tokens
         print(f"[4/5] Harvesting tokens from {len(target_platforms)} platforms...")
+        if use_uc:
+            await self.browser.launch()
         harvester = PlatformHarvester(self.browser)
         harvest_results = await harvester.harvest_all(github_session, target_platforms)
 
