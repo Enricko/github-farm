@@ -103,6 +103,7 @@ Examples:
     p_farm.add_argument("--delay-max", type=int, default=90, help="Max delay between accounts (s)")
     p_farm.add_argument("--otp-timeout", type=int, default=120, help="OTP wait timeout (s)")
     p_farm.add_argument("--proxy", help="Proxy URL (socks5://host:port)")
+    p_farm.add_argument("--no-proxy", action="store_true", help="Bypass proxy (use direct connection / mobile hotspot)")
     p_farm.add_argument("--headless", action="store_true", default=True, help="Headless browser (default: True)")
     p_farm.add_argument("--no-headless", dest="headless", action="store_false", help="Show browser window")
     p_farm.add_argument("--config", help="Config file path")
@@ -186,7 +187,10 @@ Examples:
         config = load_config(args.config)
         config["headless"] = args.headless
         config["otp_timeout"] = args.otp_timeout
-        config["proxy"] = args.proxy or config.get("network", {}).get("proxy_url")
+        if args.no_proxy:
+            config["proxy"] = None
+        else:
+            config["proxy"] = args.proxy or config.get("network", {}).get("proxy_url")
 
         from src.automation.orchestrator import Orchestrator
         orch = Orchestrator(config)
