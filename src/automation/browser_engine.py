@@ -1,6 +1,6 @@
 """
-Browser Engine — Camoufox-based stealth browser automation with Playwright fallback.
-Uses Camoufox (stealth Firefox fork) to bypass DataDome, Cloudflare, and bot detection.
+Browser Engine — Patchright & Playwright anti-detection automation.
+Uses Patchright (C++ patched undetected Chromium) or Camoufox to bypass DataDome and bot detection.
 """
 import asyncio
 import random
@@ -21,60 +21,64 @@ class BrowserEngine:
         self._pw = None
 
     async def launch(self):
-        # 1. Try Camoufox (Stealth Firefox)
+        # 1. On Windows or when Patchright is installed: use Patchright / Playwright (Chromium-based)
+        # Avoid Camoufox on Windows due to XPCOM runtime dependency issues.
         try:
-            from camoufox.async_api import AsyncCamoufox
-
-            launch_args = {
-                "headless": self.headless,
-            }
-
-            # Only add sandbox flags on Linux when running as root
-            if sys.platform != "win32":
-                try:
-                    if os.geteuid() == 0:
-                        launch_args["args"] = ["--no-sandbox", "--disable-setuid-sandbox"]
-                except AttributeError:
-                    pass
-
-            if self.proxy:
-                from urllib.parse import urlparse
-                parsed = urlparse(self.proxy)
-                server = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
-                if parsed.username and parsed.password:
-                    launch_args["proxy"] = {
-                        "server": server,
-                        "username": parsed.username,
-                        "password": parsed.password,
-                    }
-                else:
-                    launch_args["proxy"] = {"server": server}
-
-            self._camoufox = AsyncCamoufox(**launch_args)
-            self.browser = await self._camoufox.start()
-
-            if self.browser.contexts:
-                self.context = self.browser.contexts[0]
-            else:
-                self.context = await self.browser.new_context()
-
-            if self.context.pages:
-                self.page = self.context.pages[0]
-            else:
-                self.page = await self.context.new_page()
-
-            return self.page
-
+            return await self._launch_chromium()
         except Exception as e:
-            print(f"  [WARN] Camoufox launch failed ({e}). Falling back to Playwright Chromium...")
+            if sys.platform == "win32":
+                raise e
+            print(f"  [WARN] Chromium launch failed ({e}). Trying Camoufox...")
 
-        # 2. Fallback to Patchright (undetected) or Playwright with real Chrome / Edge / Chromium + stealth
+        # 2. Linux fallback: Camoufox (Stealth Firefox)
+        from camoufox.async_api import AsyncCamoufox
+
+        launch_args = {
+            "headless": self.headless,
+        }
+        try:
+            if os.geteuid() == 0:
+                launch_args["args"] = ["--no-sandbox", "--disable-setuid-sandbox"]
+        except AttributeError:
+            pass
+
+        if self.proxy:
+            from urllib.parse import urlparse
+            parsed = urlparse(self.proxy)
+            server = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
+            if parsed.username and parsed.password:
+                launch_args["proxy"] = {
+                    "server": server,
+                    "username": parsed.username,
+                    "password": parsed.password,
+                }
+            else:
+                launch_args["proxy"] = {"server": server}
+
+        self._camoufox = AsyncCamoufox(**launch_args)
+        self.browser = await self._camoufox.start()
+
+        if self.browser.contexts:
+            self.context = self.browser.contexts[0]
+        else:
+            self.context = await self.browser.new_context()
+
+        if self.context.pages:
+            self.page = self.context.pages[0]
+        else:
+            self.page = await self.context.new_page()
+
+        return self.page
+
+    async def _launch_chromium(self):
+        use_patchright = False
         try:
             from patchright.async_api import async_playwright
-            print("  [INFO] Using Patchright (stealth CDP engine)...")
+            use_patchright = True
+            print("  [INFO] Engine: Patchright (anti-detection Chromium)...")
         except ImportError:
             from playwright.async_api import async_playwright
-            print("  [INFO] Using standard Playwright...")
+            print("  [INFO] Engine: Playwright Chromium...")
 
         self._pw = await async_playwright().start()
 
@@ -87,9 +91,10 @@ class BrowserEngine:
         if self.proxy:
             pw_proxy = {"server": self.proxy}
 
-        # Auto-detect installed browser: Chrome -> Edge -> Bundled Chromium
+        # Auto-detect installed browser: Bundled Patchright -> Chrome -> Edge -> Bundled Chromium
         self.browser = None
-        for channel in ["chrome", "msedge", None]:
+        channels = [None, "chrome", "msedge"] if use_patchright else ["chrome", "msedge", None]
+        for channel in channels:
             try:
                 launch_opts = {
                     "headless": self.headless,
@@ -99,16 +104,15 @@ class BrowserEngine:
                 if channel:
                     launch_opts["channel"] = channel
                 self.browser = await self._pw.chromium.launch(**launch_opts)
-                channel_name = channel or "bundled chromium"
-                print(f"  [INFO] Launched browser using: {channel_name}")
+                channel_name = channel or ("Patchright Chromium" if use_patchright else "Bundled Chromium")
+                print(f"  [INFO] Launched browser: {channel_name}")
                 break
             except Exception:
                 continue
 
         if not self.browser:
-            raise RuntimeError(
-                "No browser found! Please run: patchright install chromium  (or: playwright install chromium)"
-            )
+            cmd = "patchright install chromium" if use_patchright else "playwright install chromium"
+            raise RuntimeError(f"No browser found! Please run in PowerShell: {cmd}")
 
         self.context = await self.browser.new_context(
             locale="en-US",
