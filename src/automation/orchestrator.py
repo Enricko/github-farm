@@ -265,6 +265,70 @@ class Orchestrator:
 
         return self.results
 
+    async def run_harvest_only(self, platforms: List[str] = None, inject: bool = True) -> Dict[str, Any]:
+        """
+        Interactive / existing session harvest:
+        1. Launches browser
+        2. Navigates to github.com/login
+        3. Waits for user to log in (or detects existing login)
+        4. Harvests tokens from all target platforms via GitHub OAuth
+        5. Injects tokens to 9Router
+        """
+        target_platforms = platforms or list(PLATFORMS.keys())
+        print(f"\n{'='*60}")
+        print(f"[HARVEST] Interactive GitHub OAuth Harvesting")
+        print(f"Target Platforms: {target_platforms}")
+        print(f"{'='*60}\n")
+
+        print("[1/3] Launching browser...")
+        page = await self.browser.launch()
+        print("  [OK] Browser ready")
+
+        print("[2/3] Checking GitHub login...")
+        await page.goto("https://github.com/login", wait_until="domcontentloaded")
+
+        # Wait for user to log in
+        print(">>> Silakan login ke akun GitHub kamu di jendela browser yang terbuka...")
+        for _ in range(90):
+            await asyncio.sleep(2)
+            url = page.url
+            if "github.com/login" not in url and "github.com/session" not in url and "github.com" in url:
+                print(f"  [OK] GitHub login terdeteksi! (URL: {url})")
+                break
+        else:
+            print("  [WARN] Waktu tunggu login selesai. Melanjutkan proses dengan session saat ini...")
+
+        # Get cookies
+        cookies = await self.browser.context.cookies()
+        github_session = {c["name"]: c["value"] for c in cookies if "github.com" in c.get("domain", "")}
+
+        # Step 3: Harvest
+        print(f"[3/3] Harvesting tokens from {len(target_platforms)} platforms...")
+        harvester = PlatformHarvester(self.browser)
+        harvest_results = await harvester.harvest_all(github_session, target_platforms)
+
+        injected_count = 0
+        for pid, result in harvest_results.items():
+            if result.get("success"):
+                print(f"  [SUCCESS] {result.get('platform_name')}: Token captured ({result.get('allowance')})")
+                if inject:
+                    adapter_cls = ADAPTERS.get(pid)
+                    if adapter_cls:
+                        adapter = adapter_cls()
+                        if pid == "codebuddy":
+                            parsed = adapter.parse_session(result["token"])
+                        else:
+                            parsed = adapter.parse_session(result["token"], "user@oauth")
+                        inj = self.injector.inject_session(parsed)
+                        if inj.get("success"):
+                            print(f"    [INJECTED] -> 9Router DB")
+                            injected_count += 1
+            else:
+                print(f"  [FAILED] {pid}: {result.get('error')}")
+
+        await self.browser.close()
+        return {"harvested": len([r for r in harvest_results.values() if r.get("success")]), "injected": injected_count}
+
     async def inject_pending(self, platforms: List[str] = None) -> Dict[str, Any]:
         """Inject all pending (uninjected) tokens to 9Router."""
         pending = self.accounts.get_pending()

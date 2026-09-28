@@ -108,6 +108,17 @@ Examples:
     p_farm.add_argument("--config", help="Config file path")
     p_farm.add_argument("--json", action="store_true", help="Output JSON")
 
+    # Command: harvest (EXISTING GITHUB ACCOUNT / MANUAL LOGIN)
+    p_harv = subparsers.add_parser("harvest", help="Interactive OAuth harvesting (login GitHub -> auto-extract CodeBuddy, GoRouter, TabiAI)")
+    p_harv.add_argument("--platforms", nargs="+", default=None,
+                        choices=["codebuddy", "gorouter", "tabiai"],
+                        help="Target platforms (default: all)")
+    p_harv.add_argument("--no-inject", action="store_true", help="Skip 9Router injection")
+    p_harv.add_argument("--no-headless", dest="headless", action="store_false", default=False, help="Show browser window (default: True)")
+    p_harv.add_argument("--headless", dest="headless", action="store_true", help="Run headless")
+    p_harv.add_argument("--config", help="Config file path")
+    p_harv.add_argument("--json", action="store_true", help="Output JSON")
+
     # Command: inject-all
     p_ia = subparsers.add_parser("inject-all", help="Inject all pending tokens to 9Router")
     p_ia.add_argument("--platforms", nargs="+", default=None,
@@ -207,6 +218,19 @@ Examples:
                 delay_max=args.delay_max,
             ))
 
+        if args.json:
+            print(json.dumps(result, indent=2))
+
+    # ── harvest ──
+    elif args.command == "harvest":
+        from src.automation.orchestrator import Orchestrator
+        config = load_config(args.config)
+        config["headless"] = args.headless
+        orch = Orchestrator(config)
+        result = asyncio.run(orch.run_harvest_only(
+            platforms=args.platforms,
+            inject=not args.no_inject,
+        ))
         if args.json:
             print(json.dumps(result, indent=2))
 
