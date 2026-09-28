@@ -4,3 +4,8 @@ __pycache__/
 .DS_Store
 .env*
 config/config.toml
+config/proxies.txt
+data/
+*.png
+*.html
+test_*.py
