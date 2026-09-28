@@ -55,7 +55,42 @@ class GitHubSignup:
                     "email": email,
                 }
 
+            # Step 1.5: Wait for challenge / slider verification if present (allow manual solve)
+            print("  [3/7] Checking for challenge / slider verification...")
+            slider_warned = False
+            for _ in range(60):  # wait up to 120 seconds
+                page_text = await self.page.content()
+                if "temporarily restricted" in page_text.lower():
+                    return {
+                        "success": False,
+                        "error": "IP terkena rate limit sementara oleh GitHub. Wajib pakai proxy atau ganti IP!",
+                        "email": email,
+                    }
+
+                # Check if email input is present and visible
+                try:
+                    email_elem = await self.page.query_selector("#email, input[type='email']")
+                    if email_elem and await email_elem.is_visible():
+                        print("  [OK] Signup form active! Proceeding...")
+                        break
+                except Exception:
+                    pass
+
+                if ("verification required" in page_text.lower() or 
+                    "unusual activity" in page_text.lower() or 
+                    "var dd=" in page_text):
+                    if not slider_warned:
+                        print("\n" + "="*60)
+                        print("⚠️  SLIDER VERIFIKASI TERDETEKSI!")
+                        print("Silakan geser slider di browser sekarang.")
+                        print("Script sedang menunggu kamu menyelesaikan verifikasi...")
+                        print("="*60 + "\n")
+                        slider_warned = True
+
+                await asyncio.sleep(2)
+
             # Step 2: Enter email
+            print("  [4/7] Entering email...")
             await self._fill_email(email)
             await self.engine.random_delay(1.0, 2.0)
 

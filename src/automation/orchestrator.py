@@ -101,8 +101,11 @@ class Orchestrator:
         try:
             from src.automation.uc_signup import UCSignupFlow, UC_AVAILABLE
             use_uc = UC_AVAILABLE
-        except Exception:
+            if not use_uc:
+                print("  [INFO] undetected-chromedriver not installed (using Patchright). To enable UC: pip install undetected-chromedriver selenium")
+        except Exception as e:
             use_uc = False
+            print(f"  [INFO] UC import error ({e}), falling back to Patchright...")
 
         github_session = {}
         if use_uc:
