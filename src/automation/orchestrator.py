@@ -60,9 +60,10 @@ class Orchestrator:
             port=imap_cfg.get("port", 993),
         )
 
+        proxy_setting = config.get("proxy") or config.get("network", {}).get("proxy_url")
         self.browser = BrowserEngine(
             headless=config.get("headless", True),
-            proxy=config.get("proxy"),
+            proxy=proxy_setting,
         )
 
         self.results = {

@@ -27,10 +27,33 @@ class GitHubSignup:
         7. Complete signup
         """
         try:
-            # Step 1: Navigate to GitHub signup
+            # Step 1: Navigate to GitHub homepage first to establish clean session
+            print("  [1/7] Opening github.com to establish natural session...")
             await self.engine.random_delay(1.0, 2.0)
-            await self.page.goto("https://github.com/signup", wait_until="domcontentloaded")
-            await self.engine.random_delay(2.0, 4.0)
+            await self.page.goto("https://github.com", wait_until="domcontentloaded")
+            await self.engine.random_delay(2.0, 3.5)
+
+            # Navigate to signup with referer
+            print("  [2/7] Entering signup flow...")
+            try:
+                signup_btn = await self.page.query_selector("a[href*='/signup']")
+                if signup_btn:
+                    await signup_btn.click()
+                else:
+                    await self.page.goto("https://github.com/signup", referer="https://github.com/")
+            except Exception:
+                await self.page.goto("https://github.com/signup", referer="https://github.com/")
+
+            await self.engine.random_delay(3.0, 5.0)
+
+            # Check if IP is currently restricted
+            page_text = await self.page.content()
+            if "temporarily restricted" in page_text.lower():
+                return {
+                    "success": False,
+                    "error": "IP terkena rate limit sementara oleh GitHub. Wajib pakai proxy atau ganti IP!",
+                    "email": email,
+                }
 
             # Step 2: Enter email
             await self._fill_email(email)

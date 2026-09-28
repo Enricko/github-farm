@@ -186,8 +186,7 @@ Examples:
         config = load_config(args.config)
         config["headless"] = args.headless
         config["otp_timeout"] = args.otp_timeout
-        if args.proxy:
-            config["proxy"] = args.proxy
+        config["proxy"] = args.proxy or config.get("network", {}).get("proxy_url")
 
         from src.automation.orchestrator import Orchestrator
         orch = Orchestrator(config)
