@@ -26,6 +26,9 @@ def generate_dot_trick_emails(username: str, domain: str = "gmail.com", max_coun
     all_variations = generate_dots(cleaned_user)
     unique_list = []
     for v in all_variations:
+        # Require at least one dot in alias so it doesn't collide with the owner's primary GitHub account
+        if "." not in v:
+            continue
         full_email = f"{v}@{domain}"
         if full_email not in unique_list:
             unique_list.append(full_email)

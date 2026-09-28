@@ -243,6 +243,28 @@ class UCSignupFlow:
         print(f"  [USERNAME] ✅ Username entered: {username}")
         self.add_human_behavior()
 
+        # Check if username is taken and auto-regenerate if needed
+        self.sleep(1.5)
+        try:
+            from selenium.webdriver.common.keys import Keys
+            login_errs = self.driver.find_elements(By.CSS_SELECTOR, "p[id*='login-err'], div[id*='login-err'], .error, [aria-invalid='true']")
+            for err in login_errs:
+                if err.is_displayed() and ("not available" in err.text.lower() or "username" in err.text.lower()):
+                    new_u = random.choice(string.ascii_lowercase) + "".join(random.choices(string.ascii_lowercase + string.digits, k=11))
+                    print(f"  [USERNAME] Username was taken/rejected! Auto-generating unique: {new_u}")
+                    user_elem.click()
+                    user_elem.send_keys(Keys.CONTROL + "a")
+                    user_elem.send_keys(Keys.BACKSPACE)
+                    self.sleep(0.3)
+                    for c in new_u:
+                        user_elem.send_keys(c)
+                        self.sleep(0.01)
+                    username = new_u
+                    self.sleep(1.0)
+                    break
+        except Exception:
+            pass
+
         # Uncheck marketing checkboxes if present
         print("  [CHECKBOXES] Checking opt-in checkboxes...")
         for selector in ["input#user_signup\\[copilot_opt_in\\]", "input#user_signup\\[marketing_consent\\]"]:
@@ -303,7 +325,42 @@ class UCSignupFlow:
         else:
             raise RuntimeError("Could not find Create account button")
 
-        self.sleep(5, 7)
+        # CRITICAL: Verify GitHub accepted form and dispatched OTP to email!
+        print("  [INFO] Waiting for GitHub to verify form and transition to OTP screen...")
+        otp_screen_ready = False
+        for _ in range(15):
+            self.sleep(1.0)
+            # 1. Check if launch code input is present
+            try:
+                launch_inputs = self.driver.find_elements(By.CSS_SELECTOR, "input#launch-code-0, input[name='otp'], input#otp")
+                if launch_inputs and launch_inputs[0].is_displayed():
+                    print("  [SUCCESS] Form accepted! GitHub has dispatched the 8-digit OTP to your email.")
+                    otp_screen_ready = True
+                    break
+            except Exception:
+                pass
+
+            # 2. Check if URL changed
+            curr = self.driver.current_url.lower()
+            if "launch-code" in curr or "verify" in curr:
+                print(f"  [SUCCESS] Advanced to OTP screen! (URL: {curr})")
+                otp_screen_ready = True
+                break
+
+            # 3. Check for visible form error messages
+            try:
+                error_elems = self.driver.find_elements(By.CSS_SELECTOR, ".error, [aria-invalid='true'], p[class*='error'], div[class*='error'], .flash-error")
+                for err in error_elems:
+                    if err.is_displayed():
+                        err_txt = err.text.strip()
+                        if err_txt and len(err_txt) > 2 and "error" not in err_txt.lower()[:5]:
+                            print(f"  [FORM VALIDATION NOTICE] {err_txt}")
+            except Exception:
+                pass
+
+        if not otp_screen_ready:
+            print("  [WARN] Form did not advance to launch-code inputs yet, checking page state...")
+
         return True
 
     def enter_otp(self, otp_code: str) -> bool:
